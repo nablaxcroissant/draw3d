@@ -1,4 +1,5 @@
 use draw3d;
+
 fn main(){
-    draw3d::run();
+    pollster::block_on(draw3d::run());
 }
