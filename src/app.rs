@@ -1,3 +1,4 @@
+use wgpu::util::DeviceExt;
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -10,9 +11,17 @@ use wasm_bindgen::prelude::*;
 pub struct AppBuilder{}
 
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
-    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
-    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
+    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
+    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
+    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
+    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
+];
+
+const INDICES: &[u16] = &[
+    0, 1, 4,
+    1, 2, 4,
+    2, 3, 4,
 ];
 
 impl AppBuilder{
@@ -46,7 +55,7 @@ impl AppBuilder{
     }
 }
 
-struct App {
+pub struct App {
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -116,9 +125,7 @@ impl App {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-        });
-
-        let draw_state = DrawState::new((0.1, 0.2, 0.3));
+        });  
 
         let render_pipeline_layout =
         device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -134,7 +141,7 @@ impl App {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main", // 1.
-                buffers: &[], // 2.
+                buffers: &[Vertex::desc()], // 2.
             },
             fragment: Some(wgpu::FragmentState { // 3.
                 module: &shader,
@@ -165,6 +172,25 @@ impl App {
             },
             multiview: None, // 5.
         });
+
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+        let index_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(INDICES),
+                usage: wgpu::BufferUsages::INDEX,
+            }
+        );
+
+        let draw_state = DrawState::new((0.1, 0.2, 0.3), vertex_buffer, index_buffer, INDICES.len() as u32);
+
         
         App {
             window,
@@ -178,8 +204,12 @@ impl App {
         }
     }
 
-    fn window(&self) -> &Window {
+    pub fn window(&self) -> &Window {
         &self.window
+    }
+
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -227,7 +257,9 @@ impl App {
             });
 
             render_pass.set_pipeline(&self.render_pipeline); // 2.
-            render_pass.draw(0..3, 0..1); 
+            render_pass.set_vertex_buffer(0, self.draw_state.vertex_buffer().slice(..));
+            render_pass.set_index_buffer(self.draw_state.index_buffer().slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.draw_state.num_indices(), 0, 0..1);
         }
     
         // submit will accept anything that implements IntoIter
@@ -273,7 +305,7 @@ fn run_loop(mut app: App, event_loop: EventLoop<()>) {
                     app.resize(**new_inner_size);
                 },
                 WindowEvent::CursorMoved { device_id: _, position, modifiers: _ } => {
-                    app.draw_state = DrawState::new((position.x/app.size.width as f64, 0., position.y/app.size.height as f64));
+                    app.draw_state.update_background_color((position.x/app.size.width as f64, 0., position.y/app.size.height as f64));
                 }
                 _ => {},
             }
