@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 
 mod app;
-use app::AppBuilder;
 mod draw;
+mod vertex;
+
+use app::AppBuilder;
 
 #[cfg(target_arch="wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
