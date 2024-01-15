@@ -234,7 +234,7 @@ impl App{
         });
 
         
-        let draw_state = DrawState::new((0.1, 0.2, 0.3));
+        let draw_state = DrawState::new((1., 1., 1.));
 
         App {
             window,
