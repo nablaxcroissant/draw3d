@@ -1,38 +1,51 @@
-use wgpu::util::DeviceExt;
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
-    window::{WindowBuilder, Window},
+    window::{WindowBuilder, Window}, dpi::PhysicalSize,
 };
-use crate::{draw::DrawState, vertex::Vertex};
+use crate::{draw::DrawState, vertex::Vertex, geometry::{GeometryType, Geometry}};
 #[cfg(target_arch="wasm32")]
 use wasm_bindgen::prelude::*;
 
-pub struct AppBuilder{}
+pub type ModelFn<Model> = fn(&App) -> Model;
 
-const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
-];
+pub type ViewFn<Model> = fn(&mut App, &Model);
 
-const INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
+pub type UpdateFn<Model> = fn(&App, &mut Model);
+
+pub struct AppBuilder<M = ()> {
+    model: ModelFn<M>,
+    update: Option<UpdateFn<M>>,
+    view: Option<ViewFn<M>>,
+    window_size: Option<winit::dpi::PhysicalSize<u32>>,
+}
 
 impl AppBuilder{
-    pub fn new() -> AppBuilder{
-        AppBuilder{}
+    pub fn new() -> AppBuilder<()>{
+        fn model(_: &App){}
+        AppBuilder{
+            model,
+            update: None,
+            view: None,
+            window_size: None,
+        }
     }
 
-    pub async fn run(self){
+    pub fn window_size(&mut self, x: u32, y: u32) {
+        self.window_size = Some(PhysicalSize::new(x, y));
+    }
+
+}
+
+impl<M> AppBuilder<M> where M: 'static {
+    pub fn run(self){
         let event_loop = EventLoop::new();
-        let window = WindowBuilder::new().build(&event_loop).unwrap();
-        let app = App::new(window).await;
+        let window = WindowBuilder::new()
+            .with_inner_size(self.window_size.unwrap_or(PhysicalSize::new(800, 800)))
+            .build(&event_loop).unwrap();
+        let app = App::new(window);
+
+        let model = (self.model)(&app);
         #[cfg(target_arch = "wasm32")]
         {
             // Winit prevents sizing with CSS, so we have to set
@@ -51,7 +64,26 @@ impl AppBuilder{
                 })
                 .expect("Couldn't append canvas to document body.");
         }
-        run_loop(app, event_loop);
+        run_loop(app, event_loop, model, self.view, self.update);
+    }
+
+    pub fn app(model: ModelFn<M>) -> AppBuilder<M>{
+        AppBuilder{
+            model,
+            update: None,
+            view: None,
+            window_size: None,
+        }
+    }
+
+    pub fn update(mut self, u: UpdateFn<M>) -> AppBuilder<M>{
+        self.update = Some(u);
+        self
+    }
+
+    pub fn view(mut self, v: ViewFn<M>) -> AppBuilder<M>{
+        self.view = Some(v);
+        self
     }
 }
 
@@ -61,13 +93,14 @@ pub struct App {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    render_pipeline: wgpu::RenderPipeline,
+    triangle_render_pipeline: wgpu::RenderPipeline,
+    line_render_pipeline: wgpu::RenderPipeline,
     window: Window,
     draw_state: DrawState,
 }
 
-impl App {
-    async fn new(window: Window) -> App {
+impl App{
+    fn new(window: Window) -> App{
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -79,15 +112,15 @@ impl App {
 
         let surface = unsafe { instance.create_surface(&window) }.unwrap();
 
-        let adapter = instance.request_adapter(
+        let adapter = pollster::block_on(instance.request_adapter(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             },
-        ).await.unwrap();
+        )).unwrap();
 
-        let (device, queue) = adapter.request_device(
+        let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 features: wgpu::Features::empty(),
                 // WebGL doesn't support all of wgpu's features, so if
@@ -100,7 +133,8 @@ impl App {
                 label: None,
             },
             None, // Trace path
-        ).await.unwrap();
+        )).unwrap();
+        
 
         let surface_caps = surface.get_capabilities(&adapter);
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
@@ -135,8 +169,8 @@ impl App {
 
         });
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
+        let triangle_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Triangle Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -173,25 +207,35 @@ impl App {
             multiview: None, // 5.
         });
 
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
-
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
-
-        let draw_state = DrawState::new((0.1, 0.2, 0.3), vertex_buffer, index_buffer, INDICES.len() as u32);
+        let line_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Line Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main", // 1.
+                buffers: &[Vertex::desc()], // 2.
+            },
+            fragment: Some(wgpu::FragmentState { // 3.
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState { // 4.
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState{
+                topology: wgpu::PrimitiveTopology::LineList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
 
         
+        let draw_state = DrawState::new((0.1, 0.2, 0.3));
+
         App {
             window,
             surface,
@@ -200,7 +244,8 @@ impl App {
             config,
             size,
             draw_state,
-            render_pipeline,
+            triangle_render_pipeline,
+            line_render_pipeline,
         }
     }
 
@@ -227,9 +272,11 @@ impl App {
 
     fn update(&mut self) {}
 
-    fn render(&mut self, (r, g,b ): (f64, f64, f64)) -> Result<(), wgpu::SurfaceError> {
+    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let (r, g, b) = self.draw_state.background_color();
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
@@ -256,10 +303,22 @@ impl App {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline); // 2.
-            render_pass.set_vertex_buffer(0, self.draw_state.vertex_buffer().slice(..));
-            render_pass.set_index_buffer(self.draw_state.index_buffer().slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.draw_state.num_indices(), 0, 0..1);
+            let geometry_list = self.draw_state.geometry_list();
+            // println!("{:?}", self.draw_state.instance_count());
+
+            for geometry in geometry_list.iter() {
+                render_pass.set_pipeline(match geometry.geometry_type() {
+                    GeometryType::Line => &self.line_render_pipeline,
+                    GeometryType::Mesh => &self.triangle_render_pipeline,
+                    
+                });
+                render_pass.set_vertex_buffer(0, geometry.vertex_buffer().slice(..));
+                render_pass.set_index_buffer(geometry.index_buffer().slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..geometry.num_indices(), 0, 0..self.draw_state.instance_count());
+            }
+            // render_pass.set_pipeline(&self.line_render_pipeline); // 2.
+            
+            
         }
     
         // submit will accept anything that implements IntoIter
@@ -268,10 +327,30 @@ impl App {
     
         Ok(())
     }
+
+    pub fn draw_state(&mut self) -> &mut DrawState{
+        &mut self.draw_state
+    }
+
+    pub fn draw(&self) -> DrawState{
+        let background_color = self.draw_state.background_color();
+        DrawState::new(background_color)
+    }
+
+    pub fn draw_to_frame(&mut self, draw: DrawState) {
+        self.draw_state = draw;
+    }
 }
 
-fn run_loop(mut app: App, event_loop: EventLoop<()>) {
-
+fn run_loop<M>(
+    mut app: App,
+    event_loop: EventLoop<()>,
+    mut model: M,
+    view: Option<ViewFn<M>>,
+    update: Option<UpdateFn<M>>,
+) where
+    M: 'static,
+{
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -304,15 +383,20 @@ fn run_loop(mut app: App, event_loop: EventLoop<()>) {
                     // new_inner_size is &&mut so we have to dereference it twice
                     app.resize(**new_inner_size);
                 },
-                WindowEvent::CursorMoved { device_id: _, position, modifiers: _ } => {
-                    app.draw_state.update_background_color((position.x/app.size.width as f64, 0., position.y/app.size.height as f64));
-                }
+                // WindowEvent::CursorMoved { device_id: _, position, modifiers: _ } => {
+                //    app.draw_state.update_background_color((position.x/app.size.width as f64, 0., position.y/app.size.height as f64));
+                //}
                 _ => {},
             }
         },
         Event::RedrawRequested(window_id) if window_id == app.window().id() => {
-            app.update();
-            match app.render(app.draw_state.background_color()) {
+            if let Some(update) = update{
+                update(&app, &mut model)
+            }
+            if let Some(view) = view{
+                view(&mut app, &model)
+            };
+            match app.render() {
                 Ok(_) => {}
                 // Reconfigure the surface if lost
                 Err(wgpu::SurfaceError::Lost) => app.resize(app.size),

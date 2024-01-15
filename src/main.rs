@@ -1,5 +1,38 @@
-use draw3d;
+use draw3d::app::App;
+use draw3d::geometry::{Geometry, Draw};
+use draw3d::vertex::Vertex;
 
 fn main(){
-    pollster::block_on(draw3d::run());
+    draw3d::app(model)
+        .view(view)
+        .run();
+}
+
+struct Model{
+    pentagon: Polygon,
+}
+
+
+
+fn model(app: &App) -> Model{
+    let vertices= vec![
+    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
+    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
+    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
+    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
+    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
+    ];
+
+    
+
+    let pentagon = Polygon::new(vertices);
+
+    Model { pentagon }
+}
+
+fn view(app: &mut App, model: &Model){
+    let mut draw = app.draw();
+    draw.add(&model.pentagon, app);
+
+    app.draw_to_frame(draw)
 }

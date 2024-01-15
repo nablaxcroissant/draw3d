@@ -1,8 +1,9 @@
-#![allow(dead_code)]
+// #![allow(dead_code)]
 
-mod app;
-mod draw;
-mod vertex;
+pub mod app;
+pub mod draw;
+pub mod vertex;
+pub mod geometry;
 
 use app::AppBuilder;
 
@@ -10,6 +11,10 @@ use app::AppBuilder;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
-pub async fn run(){
-    AppBuilder::new().run().await;
+pub fn run(){
+    AppBuilder::new().run();
+}
+
+pub fn app<M>(model: app::ModelFn<M>) -> app::AppBuilder<M> where M: 'static{
+    AppBuilder::app(model)
 }

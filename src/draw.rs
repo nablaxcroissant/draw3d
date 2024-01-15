@@ -1,43 +1,47 @@
-use crate::vertex::Vertex;
-use crate::app::App;
-use wgpu::util::DeviceExt;
+use crate::{geometry::{Geometry, Draw}, app::App};
 
 pub type Color = (f64, f64, f64);
 
 pub struct DrawState {
     background_color: Color,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    num_indices: u32,
+    geometry_list: Vec<Geometry>,
+    instance_count: u32,
 }
 
 impl DrawState {
-    pub fn new(background_color: Color, vertex_buffer: wgpu::Buffer, index_buffer: wgpu::Buffer, num_indices: u32) -> DrawState {
+    pub fn new(background_color: Color) -> DrawState {
+        let geometry_list: Vec<Geometry> = Vec::new();
+        let instance_count = geometry_list.len() as u32;
         DrawState{
             background_color,
-            vertex_buffer,
-            index_buffer,
-            num_indices,
+            geometry_list,
+            instance_count,
         }
+    }
+
+    pub fn add_geometry(&mut self, geometry: Geometry) {
+        self.geometry_list.push(geometry);
+        self.instance_count = self.geometry_list.len() as u32;
+    }
+
+    pub fn add(&mut self, object: &dyn Draw, app: &App) {
+        self.geometry_list.push(object.draw(app));
+        self.instance_count = self.geometry_list.len() as u32;
+    }
+
+    pub fn update_background_color(&mut self, color: Color) {
+        self.background_color = color;
     }
 
     pub fn background_color(&self) -> Color {
         self.background_color
     }
 
-    pub fn vertex_buffer(&self) -> &wgpu::Buffer {
-        &self.vertex_buffer
+    pub fn geometry_list(&self) -> &Vec<Geometry> {
+        &self.geometry_list
     }
 
-    pub fn index_buffer(&self) -> &wgpu::Buffer {
-        &self.index_buffer
-    }
-
-    pub fn num_indices(&self) -> u32 {
-        self.num_indices
-    }
-
-    pub fn update_background_color(&mut self, color: Color) {
-        self.background_color = color;
+    pub fn instance_count(&self) -> u32 {
+        self.instance_count
     }
 }
