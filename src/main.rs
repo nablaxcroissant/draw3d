@@ -1,5 +1,5 @@
 use draw3d::app::App;
-use draw3d::geometry::{Geometry, Draw};
+use draw3d::geometry::Polygon;
 use draw3d::vertex::Vertex;
 
 fn main(){
@@ -12,8 +12,6 @@ struct Model{
     pentagon: Polygon,
 }
 
-
-
 fn model(app: &App) -> Model{
     let vertices= vec![
     Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
@@ -22,8 +20,6 @@ fn model(app: &App) -> Model{
     Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
     Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
     ];
-
-    
 
     let pentagon = Polygon::new(vertices);
 

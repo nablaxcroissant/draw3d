@@ -88,12 +88,12 @@ impl Geometry{
     }
 }
 
-struct Polygon{
+pub struct Polygon{
     vertices: Vec<Vertex>,
 }
 
 impl Polygon{
-    fn new(vertices: Vec<Vertex>) -> Polygon {
+    pub fn new(vertices: Vec<Vertex>) -> Polygon {
        Polygon { vertices } 
     }
 }
