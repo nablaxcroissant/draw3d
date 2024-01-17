@@ -3,7 +3,7 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{WindowBuilder, Window}, dpi::PhysicalSize,
 };
-use crate::{draw::DrawState, vertex::Vertex, geometry::{GeometryType, Geometry}};
+use crate::{draw::DrawState, vertex::Vertex, geometry::GeometryType};
 #[cfg(target_arch="wasm32")]
 use wasm_bindgen::prelude::*;
 
