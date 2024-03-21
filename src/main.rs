@@ -1,6 +1,5 @@
 use draw3d::app::App;
 use draw3d::geometry::ParametricSurface;
-use draw3d::vertex::Vertex;
 use std::f32::consts::PI;
 
 fn main(){

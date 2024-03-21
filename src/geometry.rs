@@ -140,7 +140,7 @@ impl Draw for ParametricSurface{
                 vertices.push(new_vertex);
             }
         }
-        for i in (0..l1*l2-l2) {
+        for i in 0..l1*l2-l2 {
             let i = i as u16;
             indices.push(i);
             indices.push(i+l2+1);
@@ -152,5 +152,42 @@ impl Draw for ParametricSurface{
 
         //print!("{:?}", vertices);
         Geometry::new_mesh(app, &vertices, &indices)
+    }
+}
+
+pub struct PolyLine {
+    vertices: Vec<Vertex>,
+    indices: Vec<u16>,
+}
+
+impl PolyLine {
+    pub fn new(vertices: Vec<Vertex>) -> PolyLine {
+        let mut indices = Vec::new();
+        vertices.iter()
+            .enumerate()
+            .for_each(|(i, _)| {
+                indices.push(i as u16);
+                indices.push((i+1) as u16);
+            });
+        PolyLine {vertices, indices}
+    }
+
+    pub fn push(&mut self, vertex: Vertex) {
+        // let index = *self.indices.get(self.indices.len()-1).unwrap();
+        let index = self.vertices.len() as u16;
+        self.vertices.push(vertex);
+        self.indices.push(index-1);
+        self.indices.push(index);
+    }
+
+    pub fn len(&self) -> usize {
+        self.vertices.len()
+    }
+}
+
+impl Draw for PolyLine {
+    fn draw(&self, app: &App) -> Geometry {
+        
+        Geometry::new_line(app, &self.vertices, &self.indices)
     }
 }
