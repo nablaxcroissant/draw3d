@@ -38,20 +38,20 @@ impl AppBuilder{
 }
 
 impl<M> AppBuilder<M> where M: 'static {
-    pub fn run(self){
+    pub async fn run(self){
+        println!("Running appbuilder");
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
             .with_inner_size(self.window_size.unwrap_or(PhysicalSize::new(800, 800)))
             .build(&event_loop).unwrap();
-        let app = App::new(window);
+        let app = App::new(window).await;
 
         let model = (self.model)(&app);
+
         #[cfg(target_arch = "wasm32")]
         {
             // Winit prevents sizing with CSS, so we have to set
             // the size manually when on web.
-            use winit::dpi::PhysicalSize;
-            app.window.set_inner_size(PhysicalSize::new(450, 400));
             
             use winit::platform::web::WindowExtWebSys;
             web_sys::window()
@@ -63,11 +63,15 @@ impl<M> AppBuilder<M> where M: 'static {
                     Some(())
                 })
                 .expect("Couldn't append canvas to document body.");
+
+
+            app.window.set_inner_size(PhysicalSize::new(1080, 1080));
         }
         run_loop(app, event_loop, model, self.view, self.update);
     }
 
     pub fn app(model: ModelFn<M>) -> AppBuilder<M>{
+        println!("Creating appbuilder");
         AppBuilder{
             model,
             update: None,
@@ -82,6 +86,7 @@ impl<M> AppBuilder<M> where M: 'static {
     }
 
     pub fn view(mut self, v: ViewFn<M>) -> AppBuilder<M>{
+        println!("Adding view function");
         self.view = Some(v);
         self
     }
@@ -100,7 +105,7 @@ pub struct App {
 }
 
 impl App{
-    fn new(window: Window) -> App{
+    async fn new(window: Window) -> App{
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -112,15 +117,15 @@ impl App{
 
         let surface = unsafe { instance.create_surface(&window) }.unwrap();
 
-        let adapter = pollster::block_on(instance.request_adapter(
+        let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             },
-        )).unwrap();
+        ).await.unwrap();
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
+        let (device, queue) = adapter.request_device(
             &wgpu::DeviceDescriptor {
                 features: wgpu::Features::empty(),
                 // WebGL doesn't support all of wgpu's features, so if
@@ -133,7 +138,7 @@ impl App{
                 label: None,
             },
             None, // Trace path
-        )).unwrap();
+        ).await.unwrap();
         
 
         let surface_caps = surface.get_capabilities(&adapter);
