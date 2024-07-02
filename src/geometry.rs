@@ -24,7 +24,7 @@ impl Geometry{
     pub fn new_mesh(
         app: &App,
         vertices: &Vec<Vertex>,
-        indices: &[u16],
+        indices: &[u32],
     ) -> Geometry {
         let (vertex_buffer, index_buffer, num_indices) = Geometry::buffers_from_slice(app, vertices, indices);
 
@@ -55,7 +55,7 @@ impl Geometry{
     pub fn new_line(
         app: &App,
         vertices: &[Vertex],
-        indices: &[u16],
+        indices: &[u32],
     ) -> Geometry {
         let (vertex_buffer, index_buffer, num_indices) = Geometry::buffers_from_slice(app, vertices, indices);
 
@@ -67,7 +67,7 @@ impl Geometry{
         }
     }
 
-    fn buffers_from_slice(app: &App, vertices: &[Vertex], indices: &[u16]) -> (wgpu::Buffer, wgpu::Buffer, u32) {
+    fn buffers_from_slice(app: &App, vertices: &[Vertex], indices: &[u32]) -> (wgpu::Buffer, wgpu::Buffer, u32) {
         let vertex_buffer = app.device().create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
@@ -101,8 +101,8 @@ impl Polygon{
 
 impl Draw for Polygon{
     fn draw(&self, app: &App) -> Geometry {
-        let n = self.vertices.len() as u16;
-        let mut indices = Vec::new();
+        let n = self.vertices.len() as u32;
+        let mut indices: Vec<u32> = Vec::new();
         for i in 1..(n-1) {
             indices.push(0);
             indices.push(i);
@@ -130,8 +130,8 @@ impl Draw for ParametricSurface{
     fn draw(&self, app: &App) -> Geometry {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
-        let l1 = self.r1.len() as u16;
-        let l2 = self.r2.len() as u16;
+        let l1 = self.r1.len() as u32;
+        let l2 = self.r2.len() as u32;
 
         for &s1 in self.r1.iter() {
             for &s2 in self.r2.iter() {
@@ -140,8 +140,8 @@ impl Draw for ParametricSurface{
                 vertices.push(new_vertex);
             }
         }
-        for i in 0..l1*l2-l2 {
-            let i = i as u16;
+        for i in 0..l1*l2-l2 -1 {
+            let i = i as u32;
             indices.push(i);
             indices.push(i+l2+1);
             indices.push(i+1);
@@ -157,7 +157,7 @@ impl Draw for ParametricSurface{
 
 pub struct PolyLine {
     vertices: Vec<Vertex>,
-    indices: Vec<u16>,
+    indices: Vec<u32>,
 }
 
 impl PolyLine {
@@ -166,15 +166,15 @@ impl PolyLine {
         vertices.iter()
             .enumerate()
             .for_each(|(i, _)| {
-                indices.push(i as u16);
-                indices.push((i+1) as u16);
+                indices.push(i as u32);
+                indices.push((i+1) as u32);
             });
         PolyLine {vertices, indices}
     }
 
     pub fn push(&mut self, vertex: Vertex) {
         // let index = *self.indices.get(self.indices.len()-1).unwrap();
-        let index = self.vertices.len() as u16;
+        let index = self.vertices.len() as u32;
         self.vertices.push(vertex);
         self.indices.push(index-1);
         self.indices.push(index);

@@ -7,14 +7,23 @@ pub mod geometry;
 
 use app::AppBuilder;
 
-#[cfg(target_arch="wasm32")]
+#[cfg(target_arch="wasm32")] 
 use wasm_bindgen::prelude::wasm_bindgen;
 
 pub fn app<M>(model: app::ModelFn<M>) -> app::AppBuilder<M> where M: 'static{
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+            console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+        } else {
+            env_logger::init();
+        }
+    }
+     
     AppBuilder::app(model)
 }
 
-#[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
+// #[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
 pub async fn run_example() {
     use app::App;
     use geometry::ParametricSurface;
@@ -41,17 +50,25 @@ pub async fn run_example() {
             [x, y, z]
         }
 
-        let r1 = (0..=20).map(|n| 2.*PI*n as f32/20.).collect();
-        let r2 = (0..=10).map(|n| PI*n as f32/10.-PI/2.).collect();
+        let r1 = (0..32).map(|n| 2.*PI*n as f32/20.).collect();
+        let r2 = (0..16).map(|n| PI*n as f32/10.-PI/2.).collect();
 
         let sphere = ParametricSurface::new(sphere, r1, r2);
 
-        Model { surface: sphere }
+        // let vertices= vec![
+        //     Vertex { position: [0., 1., 0.0], color: [0., 1., 0.5] }, // A
+        //     Vertex { position: [-0.86, -0.5, 0.0], color: [0., 1., 0.5] }, // B
+        //     Vertex { position: [0.86, -0.5, 0.0], color: [0., 1., 0.5] }, // C
+        //     ];  
+        // let circle = Polygon::new(vertices);
+
+        // Model { surface: circle }
+        return Model {surface: sphere};
     }
 
     fn view(app: &mut App, model: &Model){
         let mut draw = app.draw();
-        //draw.update_background_color((0.1, 0.2, 0.3));
+        draw.update_background_color((0.1, 0.2, 0.3));
         draw.add(&model.surface, app);
 
         app.draw_to_frame(draw)
@@ -63,9 +80,12 @@ pub async fn run_example() {
         .view(view)
         .run());
 
+
     #[cfg(target_arch="wasm32")]
+    {
     let _run_example = app(model)
         .view(view)
-        .run();
+        .run().await;
+    }
 
 }

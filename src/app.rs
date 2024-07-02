@@ -2,8 +2,10 @@ use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{WindowBuilder, Window}, dpi::PhysicalSize,
+    keyboard::{PhysicalKey, KeyCode}
 };
 use crate::{draw::DrawState, vertex::Vertex, geometry::GeometryType};
+
 #[cfg(target_arch="wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -18,6 +20,7 @@ pub struct AppBuilder<M = ()> {
     update: Option<UpdateFn<M>>,
     view: Option<ViewFn<M>>,
     window_size: Option<winit::dpi::PhysicalSize<u32>>,
+    title: Option<String>,
 }
 
 impl AppBuilder{
@@ -28,6 +31,7 @@ impl AppBuilder{
             update: None,
             view: None,
             window_size: None,
+            title: None,
         }
     }
 
@@ -39,83 +43,102 @@ impl AppBuilder{
 
 impl<M> AppBuilder<M> where M: 'static {
     pub async fn run(self){
-        println!("Running appbuilder");
-        let event_loop = EventLoop::new();
-        let window = WindowBuilder::new()
-            .with_inner_size(self.window_size.unwrap_or(PhysicalSize::new(800, 800)))
-            .build(&event_loop).unwrap();
-        let app = App::new(window).await;
+        let event_loop = EventLoop::new().unwrap(); 
+        event_loop.set_control_flow(ControlFlow::Poll);
 
-        let model = (self.model)(&app);
+        let mut window = WindowBuilder::new();
+
+        #[cfg(not(target_arch="wasm32"))]
+        if let Some(title) = self.title {
+            window = window.with_title(title); 
+        }  
+
+        let window = window.build(&event_loop).unwrap();
 
         #[cfg(target_arch = "wasm32")]
         {
-            // Winit prevents sizing with CSS, so we have to set
-            // the size manually when on web.
-            
             use winit::platform::web::WindowExtWebSys;
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| {
                     let dst = doc.get_element_by_id("wasm-example")?;
-                    let canvas = web_sys::Element::from(app.window.canvas());
+                    let canvas = web_sys::Element::from(window.canvas()?);
+                    if let Some(title_id) = self.title {
+                        canvas.set_id(&title_id);
+                    }
                     dst.append_child(&canvas).ok()?;
                     Some(())
                 })
                 .expect("Couldn't append canvas to document body.");
-
-
-            app.window.set_inner_size(PhysicalSize::new(1080, 1080));
         }
+
+        let _ = window.request_inner_size(self.window_size.unwrap_or(PhysicalSize::new(1080, 1080)));
+
+        let app = App::new(&window).await;
+
+        let model = (self.model)(&app);
+
+        
         run_loop(app, event_loop, model, self.view, self.update);
     }
 
     pub fn app(model: ModelFn<M>) -> AppBuilder<M>{
-        println!("Creating appbuilder");
         AppBuilder{
             model,
             update: None,
             view: None,
             window_size: None,
+            title: None,
         }
     }
 
     pub fn update(mut self, u: UpdateFn<M>) -> AppBuilder<M>{
         self.update = Some(u);
-        self
+        return self;
     }
 
     pub fn view(mut self, v: ViewFn<M>) -> AppBuilder<M>{
-        println!("Adding view function");
         self.view = Some(v);
-        self
+        return self;
+    }
+
+    pub fn title(mut self, t: String) -> AppBuilder<M> {
+        self.title = Some(t);
+        return self;
     }
 }
 
-pub struct App {
-    surface: wgpu::Surface,
+pub struct App<'a> {
+    window: &'a Window,
+    surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     triangle_render_pipeline: wgpu::RenderPipeline,
     line_render_pipeline: wgpu::RenderPipeline,
-    window: Window,
     draw_state: DrawState,
 }
 
-impl App{
-    async fn new(window: Window) -> App{
+impl<'a> App<'a>{
+    async fn new(window: &'a Window) -> App{
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            #[cfg(not(target_arch="wasm32"))]
+            backends: wgpu::Backends::PRIMARY,
+            #[cfg(target_arch="wasm32")]
+            backends: wgpu::Backends::GL,
             ..Default::default()
         });
 
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+
+        #[cfg(target_arch="wasm32")]
+        web_sys::console::log_1(&"Creating surface hopefully using webgl".into());
+
+        let surface = instance.create_surface(window).unwrap();
 
         let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
@@ -127,10 +150,10 @@ impl App{
 
         let (device, queue) = adapter.request_device(
             &wgpu::DeviceDescriptor {
-                features: wgpu::Features::empty(),
+                required_features: wgpu::Features::empty(),
                 // WebGL doesn't support all of wgpu's features, so if
                 // we're building for the web, we'll have to disable some.
-                limits: if cfg!(target_arch = "wasm32") {
+               required_limits: if cfg!(target_arch = "wasm32") {
                     wgpu::Limits::downlevel_webgl2_defaults()
                 } else {
                     wgpu::Limits::default()
@@ -138,8 +161,7 @@ impl App{
                 label: None,
             },
             None, // Trace path
-        ).await.unwrap();
-        
+        ).await.unwrap();       
 
         let surface_caps = surface.get_capabilities(&adapter);
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
@@ -150,6 +172,7 @@ impl App{
             .filter(|f| f.is_srgb())
             .next()
             .unwrap_or(surface_caps.formats[0]);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -158,7 +181,13 @@ impl App{
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 2,
         };
+
+        #[cfg(target_arch="wasm32")]
+        web_sys::console::log_1(&"Testing, testing".into());
+        
+        #[cfg(not(target_arch="wasm32"))]
         surface.configure(&device, &config);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -318,7 +347,8 @@ impl App{
                     
                 });
                 render_pass.set_vertex_buffer(0, geometry.vertex_buffer().slice(..));
-                render_pass.set_index_buffer(geometry.index_buffer().slice(..), wgpu::IndexFormat::Uint16);
+                // DONT FORGET TO CHANGE THE BELOW WHEN SWITCHING BETWEEN i32 and i16 indices
+                render_pass.set_index_buffer(geometry.index_buffer().slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..geometry.num_indices(), 0, 0..self.draw_state.instance_count());
             }
             // render_pass.set_pipeline(&self.line_render_pipeline); // 2.
@@ -356,16 +386,7 @@ fn run_loop<M>(
 ) where
     M: 'static,
 {
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
-        } else {
-            env_logger::init();
-        }
-    }
-
-    event_loop.run(move |event, _, control_flow| match event {
+    let _ = event_loop.run(move |event, control_flow| match event {
         Event::WindowEvent {
             ref event,
             window_id,
@@ -373,20 +394,33 @@ fn run_loop<M>(
             match event {
                 WindowEvent::CloseRequested
                 | WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
+                    event:
+                        KeyEvent {
                             state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
+                            physical_key: PhysicalKey::Code(KeyCode::Escape),
                             ..
                         },
                     ..
-                } => *control_flow = ControlFlow::Exit,
+                } => control_flow.exit(),
                 WindowEvent::Resized(physical_size) => {
                     app.resize(*physical_size);
                 },
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    // new_inner_size is &&mut so we have to dereference it twice
-                    app.resize(**new_inner_size);
+                WindowEvent::RedrawRequested => {
+                    if let Some(update) = update{
+                        update(&app, &mut model)
+                    }
+                    if let Some(view) = view{
+                        view(&mut app, &model)
+                    };
+                    match app.render() {
+                        Ok(_) => {}
+                        // Reconfigure the surface if lost
+                        Err(wgpu::SurfaceError::Lost) => app.resize(app.size),
+                        // The system is out of memory, we should probably quit
+                        Err(wgpu::SurfaceError::OutOfMemory) => control_flow.exit(),
+                        // All other errors (Outdated, Timeout) should be resolved by the next frame
+                        Err(e) => eprintln!("{:?}", e),
+                    }
                 },
                 // WindowEvent::CursorMoved { device_id: _, position, modifiers: _ } => {
                 //    app.draw_state.update_background_color((position.x/app.size.width as f64, 0., position.y/app.size.height as f64));
@@ -394,28 +428,10 @@ fn run_loop<M>(
                 _ => {},
             }
         },
-        Event::RedrawRequested(window_id) if window_id == app.window().id() => {
-            if let Some(update) = update{
-                update(&app, &mut model)
-            }
-            if let Some(view) = view{
-                view(&mut app, &model)
-            };
-            match app.render() {
-                Ok(_) => {}
-                // Reconfigure the surface if lost
-                Err(wgpu::SurfaceError::Lost) => app.resize(app.size),
-                // The system is out of memory, we should probably quit
-                Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                // All other errors (Outdated, Timeout) should be resolved by the next frame
-                Err(e) => eprintln!("{:?}", e),
-            }
-        },
-        Event::MainEventsCleared => {
-            // RedrawRequested will only trigger once unless we manually
-            // request it.
-            app.window().request_redraw();
-        },
+        Event::AboutToWait => {
+            app.window.request_redraw();
+        }
+
         _ => {}
-    })
+    });
 }
